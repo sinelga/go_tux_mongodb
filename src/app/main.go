@@ -61,7 +61,7 @@ func (fn handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//
 	session.SetMode(mgo.Monotonic, true)
 		
-	c = session.DB("fi_FIporno").C(site)
+	c = session.DB("en_USseo").C(site)
 	merr := c.Find(nil).All(&books)
 	//	err := c.Insert(payload)
 	if merr != nil {
