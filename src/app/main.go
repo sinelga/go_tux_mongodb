@@ -1,6 +1,7 @@
 package main
 
 import (
+	"domains"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 	//	"strconv"
 )
 
@@ -20,14 +22,7 @@ type handlerError struct {
 	Code    int
 }
 
-type book struct {
-	Title  string        `json:"title"`
-	Author string        `json:"author"`
-	Id     bson.ObjectId `json:"id" bson:"_id,omitempty"`
-}
-
-// list of all of the books
-var books = make([]book, 0)
+var blogs = make([]domains.Blog, 0)
 
 var session *mgo.Session
 var c *mgo.Collection
@@ -40,10 +35,10 @@ type handler func(w http.ResponseWriter, r *http.Request) (interface{}, *handler
 // attach the standard ServeHTTP method to our handler so the http library can call it
 func (fn handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// here we could do some prep work before calling the handler if we wanted to
-	
-	fmt.Println(mux.Vars(r))
-	fmt.Println(r.Header)
-	fmt.Println(r.Header.Get("Access-Control-Request-Headers"))
+
+	//	fmt.Println(mux.Vars(r))
+	//	fmt.Println(r.Header)
+	//	fmt.Println(r.Header.Get("Access-Control-Request-Headers"))
 
 	if origin := r.Header.Get("Origin"); origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -52,17 +47,17 @@ func (fn handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	site = r.Host
-	
+
 	session, _ = mgo.Dial("localhost")
 
 	defer session.Close()
 	//
 	session.SetMode(mgo.Monotonic, true)
-		
+
 	c = session.DB("en_USseo").C(site)
-	merr := c.Find(nil).All(&books)
+	merr := c.Find(nil).All(&blogs)
 	//	err := c.Insert(payload)
 	if merr != nil {
 		log.Println(merr.Error()) //		return
@@ -93,19 +88,14 @@ func (fn handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%s %s %s %d", r.RemoteAddr, r.Method, r.URL, 200)
 }
 
-func listBooks(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError) {
-	fmt.Println(r.Header)
-	
-	fmt.Println(r.Header.Get("Access-Control-Request-Headers"))
+func listBlogs(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError) {
 
-	return books, nil
+	return blogs, nil
 }
 
-func getBook(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError) {
+func getBlog(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError) {
+	var result domains.Blog
 
-	//	fmt.Println(mux.Vars(r)["id"])
-	var result book
-//	c := session.DB("fi_FIporno").C("www.test.com")
 	err := c.FindId(bson.ObjectIdHex(mux.Vars(r)["id"])).One(&result)
 
 	if err != nil {
@@ -113,22 +103,25 @@ func getBook(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError
 
 	}
 
+//	fmt.Println(result)
+
 	return result, nil
 }
 
-func parseBookRequest(r *http.Request) (book, *handlerError) {
+func parseBookRequest(r *http.Request) (domains.Blog, *handlerError) {
 
 	data, e := ioutil.ReadAll(r.Body)
 	if e != nil {
-		return book{}, &handlerError{e, "Could not read request", http.StatusBadRequest}
+		//		return book{}, &handlerError{e, "Could not read request", http.StatusBadRequest}
 	}
 
-	// turn the request body (JSON) into a book object
-	var payload book
+	var payload domains.Blog
 	e = json.Unmarshal(data, &payload)
 	if e != nil {
-		return book{}, &handlerError{e, "Could not parse JSON", http.StatusBadRequest}
+		return domains.Blog{}, &handlerError{e, "Could not parse JSON", http.StatusBadRequest}
 	}
+
+	//	payload.Pubdate = time.Now()
 
 	return payload, nil
 }
@@ -142,7 +135,9 @@ func addBook(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError
 
 	// it's our job to assign IDs, ignore what (if anything) the client sent
 	//	payload.Id = getNextId()
-	books = append(books, payload)
+	blogs = append(blogs, payload)
+
+	payload.Pubdate = time.Now().Local()
 
 	err := c.Insert(payload)
 	if err != nil {
@@ -161,7 +156,19 @@ func updateBook(w http.ResponseWriter, r *http.Request) (interface{}, *handlerEr
 		return nil, e
 	}
 
-	change := bson.M{"title": payload.Title, "autor": payload.Author}
+	fmt.Println("updateBook", payload)
+	
+	
+	change := bson.M{"title": payload.Title,
+		"author":        payload.Author,
+		"contents":      payload.Contents,
+		"permanentlink": payload.Permanentlink,
+		"imglink":       payload.Imglink,
+		"extlink":       payload.Extlink,
+		"pubdate":       payload.Pubdate,
+		"keywords":      payload.Keywords,
+		"tags":          payload.Tags,
+	}
 
 	err := c.UpdateId(payload.Id, change)
 	if err != nil {
@@ -177,16 +184,16 @@ func removeBook(w http.ResponseWriter, r *http.Request) (interface{}, *handlerEr
 
 	var index int
 
-	for i, book := range books {
+	for i, blog := range blogs {
 
-		if book.Id == bson.ObjectIdHex(mux.Vars(r)["id"]) {
+		if blog.Id == bson.ObjectIdHex(mux.Vars(r)["id"]) {
 			index = i
 
 		}
 
 	}
 
-	books = append(books[:index], books[index+1:]...)
+	blogs = append(blogs[:index], blogs[index+1:]...)
 
 	err := c.RemoveId(bson.ObjectIdHex(mux.Vars(r)["id"]))
 
@@ -199,13 +206,11 @@ func removeBook(w http.ResponseWriter, r *http.Request) (interface{}, *handlerEr
 	return make(map[string]string), nil
 }
 
-
 func corOptions(w http.ResponseWriter, r *http.Request) (interface{}, *handlerError) {
 
 	return make(map[string]string), nil
 
 }
-
 
 func main() {
 	// command line flags
@@ -221,21 +226,19 @@ func main() {
 	router := mux.NewRouter()
 
 	router.Handle("/", http.RedirectHandler("/static/", 302))
-	router.Handle("/books", handler(listBooks)).Methods("GET")
-	router.Handle("/books", handler(addBook)).Methods("POST")
-	router.Handle("/books/{id}", handler(getBook)).Methods("GET")
-	router.Handle("/books/{id}", handler(updateBook)).Methods("POST")
-	router.Handle("/books/{id}", handler(removeBook)).Methods("DELETE")
-	router.Handle("/books/{id}", handler(corOptions)).Methods("OPTIONS")
-	router.Handle("/books", handler(corOptions)).Methods("OPTIONS")
+	router.Handle("/blogs", handler(listBlogs)).Methods("GET")
+	router.Handle("/blogs", handler(addBook)).Methods("POST")
+	router.Handle("/blogs/{id}", handler(getBlog)).Methods("GET")
+	router.Handle("/blogs/{id}", handler(updateBook)).Methods("POST")
+	router.Handle("/blogs/{id}", handler(removeBook)).Methods("DELETE")
+	router.Handle("/blogs/{id}", handler(corOptions)).Methods("OPTIONS")
+	router.Handle("/blogs", handler(corOptions)).Methods("OPTIONS")
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static", fileHandler))
 	http.Handle("/", router)
 
-
-
 	log.Printf("Running on port %d\n", *port)
 
-	addr := fmt.Sprintf("104.236.237.125:%d", *port)
+	addr := fmt.Sprintf(":%d", *port)
 	// this call blocks -- the progam runs here forever
 	err := http.ListenAndServe(addr, nil)
 	fmt.Println(err.Error())
